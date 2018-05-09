@@ -225,13 +225,63 @@ pub trait StateEvent: RoomEvent {
 }
 
 event! {
+    /// An event with missing or invalid contents.
+    pub struct InvalidEvent(Value) {
+        /// The reason why this event is invalid.
+        #[serde(skip)]
+        pub error: Option<String>
+    }
+}
+
+impl InvalidEvent {
+    /// Convenience method for error handling code
+    pub(crate) fn with_error(self, error: String) -> Self {
+        Self { error: Some(error), ..self }
+    }
+}
+
+event! {
     /// A custom basic event not covered by the Matrix specification.
     pub struct CustomEvent(Value) {}
 }
 
 room_event! {
+    /// An event with missing or invalid contents, but that still meets the general requirements
+    /// for a room event.
+    pub struct InvalidRoomEvent(Value) {
+        /// The reason why this event is invalid.
+        #[serde(skip)]
+        pub error: Option<String>
+    }
+}
+
+impl InvalidRoomEvent {
+    /// Convenience method for error handling code
+    pub(crate) fn with_error(self, error: String) -> Self {
+        Self { error: Some(error), ..self }
+    }
+}
+
+room_event! {
     /// A custom room event not covered by the Matrix specification.
     pub struct CustomRoomEvent(Value) {}
+}
+
+state_event! {
+    /// An event with missing or invalid contents, but that still meets the general requirements
+    /// for a state event.
+    pub struct InvalidStateEvent(Value) {
+        /// The reason why this event is invalid.
+        #[serde(skip)]
+        pub error: Option<String>
+    }
+}
+
+impl InvalidStateEvent {
+    /// Convenience method for error handling code
+    pub(crate) fn with_error(self, error: String) -> Self {
+        Self { error: Some(error), ..self }
+    }
 }
 
 state_event! {

@@ -1,7 +1,7 @@
 //! Enums for heterogeneous collections of events, exclusive to event types that implement "at
 //! most" the trait of the same name.
 
-use {CustomEvent, CustomRoomEvent, EventType};
+use {CustomEvent, CustomRoomEvent, EventType, InvalidEvent, InvalidRoomEvent};
 use call::answer::AnswerEvent;
 use call::candidates::CandidatesEvent;
 use call::hangup::HangupEvent;
@@ -30,6 +30,8 @@ pub enum Event {
     Tag(TagEvent),
     /// m.typing
     Typing(TypingEvent),
+    /// Any known basic event, but with missing or invalid contents.
+    Invalid(InvalidEvent),
     /// Any basic event that is not part of the specification.
     Custom(CustomEvent),
 }
@@ -49,6 +51,8 @@ pub enum RoomEvent {
     RoomMessage(MessageEvent),
     /// m.room.redaction
     RoomRedaction(RedactionEvent),
+    /// Any known room event, but with missing or invalid contents.
+    InvalidRoom(InvalidRoomEvent),
     /// Any room event that is not part of the specification.
     CustomRoom(CustomRoomEvent),
 }
@@ -60,6 +64,7 @@ impl Serialize for Event {
             Event::Receipt(ref event) => event.serialize(serializer),
             Event::Tag(ref event) => event.serialize(serializer),
             Event::Typing(ref event) => event.serialize(serializer),
+            Event::Invalid(ref event) => event.serialize(serializer),
             Event::Custom(ref event) => event.serialize(serializer),
         }
     }
@@ -67,6 +72,13 @@ impl Serialize for Event {
 
 impl<'de> Deserialize<'de> for Event {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+        let invalid_event = |value, error| {
+            match from_value::<InvalidEvent>(value) {
+                Ok(event) => Ok(Event::Invalid(event.with_error(error))),
+                Err(error) => Err(D::Error::custom(error.to_string())),
+            }
+        };
+
         let value: Value = Deserialize::deserialize(deserializer)?;
 
         let event_type_value = match value.get("type") {
@@ -81,44 +93,34 @@ impl<'de> Deserialize<'de> for Event {
 
         match event_type {
             EventType::Presence => {
-                let event = match from_value::<PresenceEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::Presence(event))
+                match from_value::<PresenceEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::Presence(event)),
+                    Err(error) => invalid_event(value, error.to_string()),
+                }
             }
             EventType::Receipt => {
-                let event = match from_value::<ReceiptEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::Receipt(event))
+                match from_value::<ReceiptEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::Receipt(event)),
+                    Err(error) => invalid_event(value, error.to_string()),
+                }
             }
             EventType::Tag => {
-                let event = match from_value::<TagEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::Tag(event))
+                match from_value::<TagEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::Tag(event)),
+                    Err(error) => invalid_event(value, error.to_string()),
+                }
             }
             EventType::Typing => {
-                let event = match from_value::<TypingEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::Typing(event))
+                match from_value::<TypingEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::Typing(event)),
+                    Err(error) => invalid_event(value, error.to_string()),
+                }
             }
             EventType::Custom(_) => {
-                let event = match from_value::<CustomEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::Custom(event))
+                match from_value::<CustomEvent>(value) {
+                    Ok(event) => Ok(Event::Custom(event)),
+                    Err(error) => Err(D::Error::custom(error.to_string())),
+                }
             }
             EventType::CallAnswer | EventType::CallCandidates | EventType::CallHangup |
             EventType::CallInvite | EventType::RoomAliases | EventType::RoomAvatar |
@@ -126,7 +128,7 @@ impl<'de> Deserialize<'de> for Event {
             EventType::RoomHistoryVisibility | EventType::RoomJoinRules | EventType::RoomMember |
             EventType::RoomMessage | EventType::RoomName | EventType::RoomPowerLevels |
             EventType::RoomRedaction | EventType::RoomThirdPartyInvite | EventType::RoomTopic => {
-                return Err(D::Error::custom("not exclusively a basic event".to_string()));
+                Err(D::Error::custom("not exclusively a basic event".to_string()))
             }
         }
     }
@@ -141,6 +143,7 @@ impl Serialize for RoomEvent {
             RoomEvent::CallInvite(ref event) => event.serialize(serializer),
             RoomEvent::RoomMessage(ref event) => event.serialize(serializer),
             RoomEvent::RoomRedaction(ref event) => event.serialize(serializer),
+            RoomEvent::InvalidRoom(ref event) => event.serialize(serializer),
             RoomEvent::CustomRoom(ref event) => event.serialize(serializer),
         }
     }
@@ -148,6 +151,13 @@ impl Serialize for RoomEvent {
 
 impl<'de> Deserialize<'de> for RoomEvent {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+        let invalid_room_event = |value, error| {
+            match from_value::<InvalidRoomEvent>(value) {
+                Ok(event) => Ok(RoomEvent::InvalidRoom(event.with_error(error))),
+                Err(error) => Err(D::Error::custom(error.to_string())),
+            }
+        };
+
         let value: Value = Deserialize::deserialize(deserializer)?;
 
         let event_type_value = match value.get("type") {
@@ -162,60 +172,46 @@ impl<'de> Deserialize<'de> for RoomEvent {
 
         match event_type {
             EventType::CallAnswer => {
-                let event = match from_value::<AnswerEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::CallAnswer(event))
+                match from_value::<AnswerEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::CallAnswer(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::CallCandidates => {
-                let event = match from_value::<CandidatesEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::CallCandidates(event))
+                match from_value::<CandidatesEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::CallCandidates(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::CallHangup => {
-                let event = match from_value::<HangupEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::CallHangup(event))
+                match from_value::<HangupEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::CallHangup(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::CallInvite => {
-                let event = match from_value::<InviteEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::CallInvite(event))
+                match from_value::<InviteEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::CallInvite(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::RoomMessage => {
-                let event = match from_value::<MessageEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomMessage(event))
+                match from_value::<MessageEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomMessage(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::RoomRedaction => {
-                let event = match from_value::<RedactionEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomRedaction(event))
+                match from_value::<RedactionEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomRedaction(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::Custom(_) => {
-                let event = match from_value::<CustomRoomEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::CustomRoom(event))
+                match from_value::<CustomRoomEvent>(value) {
+                    Ok(event) => Ok(RoomEvent::CustomRoom(event)),
+                    Err(error) => Err(D::Error::custom(error.to_string())),
+                }
             }
             EventType::Presence | EventType::Receipt | EventType::RoomAliases |
             EventType::RoomAvatar | EventType::RoomCanonicalAlias | EventType::RoomCreate |
@@ -223,7 +219,7 @@ impl<'de> Deserialize<'de> for RoomEvent {
             EventType::RoomJoinRules | EventType::RoomMember | EventType::RoomName |
             EventType::RoomPowerLevels |EventType::RoomThirdPartyInvite | EventType::RoomTopic |
             EventType::Tag | EventType::Typing => {
-                return Err(D::Error::custom("not exclusively a room event".to_string()));
+                Err(D::Error::custom("not exclusively a room event".to_string()))
             }
         }
     }

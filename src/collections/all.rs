@@ -1,7 +1,10 @@
 //! Enums for heterogeneous collections of events, inclusive for every event type that implements
 //! the trait of the same name.
 
-use {CustomEvent, CustomRoomEvent, CustomStateEvent, EventType};
+use {
+    CustomEvent, CustomRoomEvent, CustomStateEvent, EventType, InvalidEvent, InvalidRoomEvent,
+    InvalidStateEvent
+};
 use call::answer::AnswerEvent;
 use call::candidates::CandidatesEvent;
 use call::hangup::HangupEvent;
@@ -76,13 +79,20 @@ pub enum Event {
     Tag(TagEvent),
     /// m.typing
     Typing(TypingEvent),
+    /// Any known event, but with missing or invalid contents.
+    Invalid(InvalidEvent),
     /// Any basic event that is not part of the specification.
     Custom(CustomEvent),
+    /// Any known room event, but with missing or invalid contents.
+    InvalidRoom(InvalidRoomEvent),
     /// Any room event that is not part of the specification.
     CustomRoom(CustomRoomEvent),
+    /// Any known state event, but with missing or invalid contents.
+    InvalidState(InvalidStateEvent),
     /// Any state event that is not part of the specification.
     CustomState(CustomStateEvent),
 }
+
 
 /// A room event or state event.
 #[derive(Clone, Debug)]
@@ -123,8 +133,12 @@ pub enum RoomEvent {
     RoomThirdPartyInvite(ThirdPartyInviteEvent),
     /// m.room.topic
     RoomTopic(TopicEvent),
+    /// Any known room event, but with missing or invalid contents.
+    InvalidRoom(InvalidRoomEvent),
     /// Any room event that is not part of the specification.
     CustomRoom(CustomRoomEvent),
+    /// Any known state event, but with missing or invalid contents.
+    InvalidState(InvalidStateEvent),
     /// Any state event that is not part of the specification.
     CustomState(CustomStateEvent),
 }
@@ -156,6 +170,8 @@ pub enum StateEvent {
     RoomThirdPartyInvite(ThirdPartyInviteEvent),
     /// m.room.topic
     RoomTopic(TopicEvent),
+    /// One of the above, but with missing or invalid contents.
+    InvalidState(InvalidStateEvent),
     /// Any state event that is not part of the specification.
     CustomState(CustomStateEvent),
 }
@@ -185,8 +201,11 @@ impl Serialize for Event {
             Event::RoomTopic(ref event) => event.serialize(serializer),
             Event::Tag(ref event) => event.serialize(serializer),
             Event::Typing(ref event) => event.serialize(serializer),
+            Event::Invalid(ref event) => event.serialize(serializer),
             Event::Custom(ref event) => event.serialize(serializer),
+            Event::InvalidRoom(ref event) => event.serialize(serializer),
             Event::CustomRoom(ref event) => event.serialize(serializer),
+            Event::InvalidState(ref event) => event.serialize(serializer),
             Event::CustomState(ref event) => event.serialize(serializer),
         }
     }
@@ -194,6 +213,27 @@ impl Serialize for Event {
 
 impl<'de> Deserialize<'de> for Event {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+        let invalid_event = |value, error| {
+            match from_value::<InvalidEvent>(value) {
+                Ok(event) => Ok(Event::Invalid(event.with_error(error))),
+                Err(error) => Err(D::Error::custom(error.to_string())),
+            }
+        };
+
+        let invalid_room_event = |value, error| {
+            match from_value::<InvalidRoomEvent>(value) {
+                Ok(event) => Ok(Event::InvalidRoom(event.with_error(error))),
+                Err(error) => Err(D::Error::custom(error.to_string())),
+            }
+        };
+
+        let invalid_state_event = |value, error| {
+            match from_value::<InvalidStateEvent>(value) {
+                Ok(event) => Ok(Event::InvalidState(event.with_error(error))),
+                Err(error) => Err(D::Error::custom(error.to_string())),
+            }
+        };
+
         let value: Value = Deserialize::deserialize(deserializer)?;
 
         let event_type_value = match value.get("type") {
@@ -208,204 +248,154 @@ impl<'de> Deserialize<'de> for Event {
 
         match event_type {
             EventType::CallAnswer => {
-                let event = match from_value::<AnswerEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::CallAnswer(event))
+                match from_value::<AnswerEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::CallAnswer(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::CallCandidates => {
-                let event = match from_value::<CandidatesEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::CallCandidates(event))
+                match from_value::<CandidatesEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::CallCandidates(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::CallHangup => {
-                let event = match from_value::<HangupEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::CallHangup(event))
+                match from_value::<HangupEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::CallHangup(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::CallInvite => {
-                let event = match from_value::<InviteEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::CallInvite(event))
+                match from_value::<InviteEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::CallInvite(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::Presence => {
-                let event = match from_value::<PresenceEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::Presence(event))
+                match from_value::<PresenceEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::Presence(event)),
+                    Err(error) => invalid_event(value, error.to_string()),
+                }
             }
             EventType::Receipt => {
-                let event = match from_value::<ReceiptEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::Receipt(event))
+                match from_value::<ReceiptEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::Receipt(event)),
+                    Err(error) => invalid_event(value, error.to_string()),
+                }
             }
             EventType::RoomAliases => {
-                let event = match from_value::<AliasesEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomAliases(event))
+                match from_value::<AliasesEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomAliases(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomAvatar => {
-                let event = match from_value::<AvatarEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomAvatar(event))
+                match from_value::<AvatarEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomAvatar(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomCanonicalAlias => {
-                let event = match from_value::<CanonicalAliasEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomCanonicalAlias(event))
+                match from_value::<CanonicalAliasEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomCanonicalAlias(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomCreate => {
-                let event = match from_value::<CreateEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomCreate(event))
+                match from_value::<CreateEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomCreate(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomGuestAccess => {
-                let event = match from_value::<GuestAccessEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomGuestAccess(event))
+                match from_value::<GuestAccessEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomGuestAccess(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomHistoryVisibility => {
-                let event = match from_value::<HistoryVisibilityEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomHistoryVisibility(event))
+                match from_value::<HistoryVisibilityEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomHistoryVisibility(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomJoinRules => {
-                let event = match from_value::<JoinRulesEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomJoinRules(event))
+                match from_value::<JoinRulesEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomJoinRules(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomMember => {
-                let event = match from_value::<MemberEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomMember(event))
+                match from_value::<MemberEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomMember(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomMessage => {
-                let event = match from_value::<MessageEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomMessage(event))
+                match from_value::<MessageEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomMessage(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::RoomName => {
-                let event = match from_value::<NameEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomName(event))
+                match from_value::<NameEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomName(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomPowerLevels => {
-                let event = match from_value::<PowerLevelsEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomPowerLevels(event))
+                match from_value::<PowerLevelsEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomPowerLevels(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomRedaction => {
-                let event = match from_value::<RedactionEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomRedaction(event))
+                match from_value::<RedactionEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomRedaction(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::RoomThirdPartyInvite => {
-                let event = match from_value::<ThirdPartyInviteEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomThirdPartyInvite(event))
+                match from_value::<ThirdPartyInviteEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomThirdPartyInvite(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomTopic => {
-                let event = match from_value::<TopicEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::RoomTopic(event))
+                match from_value::<TopicEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::RoomTopic(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::Tag => {
-                let event = match from_value::<TagEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::Tag(event))
+                match from_value::<TagEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::Tag(event)),
+                    Err(error) => invalid_event(value, error.to_string()),
+                }
             }
             EventType::Typing => {
-                let event = match from_value::<TypingEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(Event::Typing(event))
+                match from_value::<TypingEvent>(value.clone()) {
+                    Ok(event) => Ok(Event::Typing(event)),
+                    Err(error) => invalid_event(value, error.to_string()),
+                }
             }
             EventType::Custom(_) => {
                 if value.get("state_key").is_some() {
-                    let event = match from_value::<CustomStateEvent>(value) {
-                        Ok(event) => event,
-                        Err(error) => return Err(D::Error::custom(error.to_string())),
-                    };
-
-                    Ok(Event::CustomState(event))
+                    match from_value::<CustomStateEvent>(value) {
+                        Ok(event) => Ok(Event::CustomState(event)),
+                        Err(error) => Err(D::Error::custom(error.to_string())),
+                    }
                 } else if value.get("event_id").is_some() && value.get("room_id").is_some() &&
                     value.get("sender").is_some() {
-                    let event = match from_value::<CustomRoomEvent>(value) {
-                        Ok(event) => event,
-                        Err(error) => return Err(D::Error::custom(error.to_string())),
-                    };
-
-                    Ok(Event::CustomRoom(event))
+                    match from_value::<CustomRoomEvent>(value) {
+                        Ok(event) => Ok(Event::CustomRoom(event)),
+                        Err(error) => Err(D::Error::custom(error.to_string())),
+                    }
                 } else {
-                    let event = match from_value::<CustomEvent>(value) {
-                        Ok(event) => event,
-                        Err(error) => return Err(D::Error::custom(error.to_string())),
-                    };
-
-                    Ok(Event::Custom(event))
+                    match from_value::<CustomEvent>(value) {
+                        Ok(event) => Ok(Event::Custom(event)),
+                        Err(error) => Err(D::Error::custom(error.to_string())),
+                    }
                 }
             }
         }
@@ -433,7 +423,9 @@ impl Serialize for RoomEvent {
             RoomEvent::RoomRedaction(ref event) => event.serialize(serializer),
             RoomEvent::RoomThirdPartyInvite(ref event) => event.serialize(serializer),
             RoomEvent::RoomTopic(ref event) => event.serialize(serializer),
+            RoomEvent::InvalidRoom(ref event) => event.serialize(serializer),
             RoomEvent::CustomRoom(ref event) => event.serialize(serializer),
+            RoomEvent::InvalidState(ref event) => event.serialize(serializer),
             RoomEvent::CustomState(ref event) => event.serialize(serializer),
         }
     }
@@ -441,6 +433,20 @@ impl Serialize for RoomEvent {
 
 impl<'de> Deserialize<'de> for RoomEvent {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+        let invalid_room_event = |value, error| {
+            match from_value::<InvalidRoomEvent>(value) {
+                Ok(event) => Ok(RoomEvent::InvalidRoom(event.with_error(error))),
+                Err(error) => Err(D::Error::custom(error.to_string())),
+            }
+        };
+
+        let invalid_state_event = |value, error| {
+            match from_value::<InvalidStateEvent>(value) {
+                Ok(event) => Ok(RoomEvent::InvalidState(event.with_error(error))),
+                Err(error) => Err(D::Error::custom(error.to_string())),
+            }
+        };
+
         let value: Value = Deserialize::deserialize(deserializer)?;
 
         let event_type_value = match value.get("type") {
@@ -455,168 +461,128 @@ impl<'de> Deserialize<'de> for RoomEvent {
 
         match event_type {
             EventType::CallAnswer => {
-                let event = match from_value::<AnswerEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::CallAnswer(event))
+                match from_value::<AnswerEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::CallAnswer(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::CallCandidates => {
-                let event = match from_value::<CandidatesEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::CallCandidates(event))
+                match from_value::<CandidatesEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::CallCandidates(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::CallHangup => {
-                let event = match from_value::<HangupEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::CallHangup(event))
+                match from_value::<HangupEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::CallHangup(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::CallInvite => {
-                let event = match from_value::<InviteEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::CallInvite(event))
+                match from_value::<InviteEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::CallInvite(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::RoomAliases => {
-                let event = match from_value::<AliasesEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomAliases(event))
+                match from_value::<AliasesEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomAliases(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomAvatar => {
-                let event = match from_value::<AvatarEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomAvatar(event))
+                match from_value::<AvatarEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomAvatar(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomCanonicalAlias => {
-                let event = match from_value::<CanonicalAliasEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomCanonicalAlias(event))
+                match from_value::<CanonicalAliasEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomCanonicalAlias(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomCreate => {
-                let event = match from_value::<CreateEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomCreate(event))
+                match from_value::<CreateEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomCreate(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomGuestAccess => {
-                let event = match from_value::<GuestAccessEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomGuestAccess(event))
+                match from_value::<GuestAccessEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomGuestAccess(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomHistoryVisibility => {
-                let event = match from_value::<HistoryVisibilityEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomHistoryVisibility(event))
+                match from_value::<HistoryVisibilityEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomHistoryVisibility(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomJoinRules => {
-                let event = match from_value::<JoinRulesEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomJoinRules(event))
+                match from_value::<JoinRulesEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomJoinRules(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomMember => {
-                let event = match from_value::<MemberEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomMember(event))
+                match from_value::<MemberEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomMember(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomMessage => {
-                let event = match from_value::<MessageEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomMessage(event))
+                match from_value::<MessageEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomMessage(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::RoomName => {
-                let event = match from_value::<NameEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomName(event))
+                match from_value::<NameEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomName(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomPowerLevels => {
-                let event = match from_value::<PowerLevelsEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomPowerLevels(event))
+                match from_value::<PowerLevelsEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomPowerLevels(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomRedaction => {
-                let event = match from_value::<RedactionEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomRedaction(event))
+                match from_value::<RedactionEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomRedaction(event)),
+                    Err(error) => invalid_room_event(value, error.to_string()),
+                }
             }
             EventType::RoomThirdPartyInvite => {
-                let event = match from_value::<ThirdPartyInviteEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomThirdPartyInvite(event))
+                match from_value::<ThirdPartyInviteEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomThirdPartyInvite(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomTopic => {
-                let event = match from_value::<TopicEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(RoomEvent::RoomTopic(event))
+                match from_value::<TopicEvent>(value.clone()) {
+                    Ok(event) => Ok(RoomEvent::RoomTopic(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::Custom(_) => {
                 if value.get("state_key").is_some() {
-                    let event = match from_value::<CustomStateEvent>(value) {
-                        Ok(event) => event,
-                        Err(error) => return Err(D::Error::custom(error.to_string())),
-                    };
-
-                    Ok(RoomEvent::CustomState(event))
+                    match from_value::<CustomStateEvent>(value) {
+                        Ok(event) => Ok(RoomEvent::CustomState(event)),
+                        Err(error) => Err(D::Error::custom(error.to_string())),
+                    }
                 } else {
-                    let event = match from_value::<CustomRoomEvent>(value) {
-                        Ok(event) => event,
-                        Err(error) => return Err(D::Error::custom(error.to_string())),
-                    };
-
-                    Ok(RoomEvent::CustomRoom(event))
+                    match from_value::<CustomRoomEvent>(value) {
+                        Ok(event) => Ok(RoomEvent::CustomRoom(event)),
+                        Err(error) => Err(D::Error::custom(error.to_string())),
+                    }
                 }
             }
             EventType::Presence | EventType::Receipt | EventType::Tag | EventType::Typing => {
-                return Err(D::Error::custom("not a room event".to_string()));
+                Err(D::Error::custom("not a room event".to_string()))
             }
         }
     }
@@ -637,6 +603,7 @@ impl Serialize for StateEvent {
             StateEvent::RoomPowerLevels(ref event) => event.serialize(serializer),
             StateEvent::RoomThirdPartyInvite(ref event) => event.serialize(serializer),
             StateEvent::RoomTopic(ref event) => event.serialize(serializer),
+            StateEvent::InvalidState(ref event) => event.serialize(serializer),
             StateEvent::CustomState(ref event) => event.serialize(serializer),
         }
     }
@@ -644,6 +611,13 @@ impl Serialize for StateEvent {
 
 impl<'de> Deserialize<'de> for StateEvent {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+        let invalid_state_event = |value, error| {
+            match from_value::<InvalidStateEvent>(value) {
+                Ok(event) => Ok(StateEvent::InvalidState(event.with_error(error))),
+                Err(error) => Err(D::Error::custom(error.to_string())),
+            }
+        };
+
         let value: Value = Deserialize::deserialize(deserializer)?;
 
         let event_type_value = match value.get("type") {
@@ -658,114 +632,88 @@ impl<'de> Deserialize<'de> for StateEvent {
 
         match event_type {
             EventType::RoomAliases => {
-                let event = match from_value::<AliasesEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(StateEvent::RoomAliases(event))
+                match from_value::<AliasesEvent>(value.clone()) {
+                    Ok(event) => Ok(StateEvent::RoomAliases(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomAvatar => {
-                let event = match from_value::<AvatarEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(StateEvent::RoomAvatar(event))
+                match from_value::<AvatarEvent>(value.clone()) {
+                    Ok(event) => Ok(StateEvent::RoomAvatar(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomCanonicalAlias => {
-                let event = match from_value::<CanonicalAliasEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(StateEvent::RoomCanonicalAlias(event))
+                match from_value::<CanonicalAliasEvent>(value.clone()) {
+                    Ok(event) => Ok(StateEvent::RoomCanonicalAlias(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomCreate => {
-                let event = match from_value::<CreateEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(StateEvent::RoomCreate(event))
+                match from_value::<CreateEvent>(value.clone()) {
+                    Ok(event) => Ok(StateEvent::RoomCreate(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomGuestAccess => {
-                let event = match from_value::<GuestAccessEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(StateEvent::RoomGuestAccess(event))
+                match from_value::<GuestAccessEvent>(value.clone()) {
+                    Ok(event) => Ok(StateEvent::RoomGuestAccess(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomHistoryVisibility => {
-                let event = match from_value::<HistoryVisibilityEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(StateEvent::RoomHistoryVisibility(event))
+                match from_value::<HistoryVisibilityEvent>(value.clone()) {
+                    Ok(event) => Ok(StateEvent::RoomHistoryVisibility(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomJoinRules => {
-                let event = match from_value::<JoinRulesEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(StateEvent::RoomJoinRules(event))
+                match from_value::<JoinRulesEvent>(value.clone()) {
+                    Ok(event) => Ok(StateEvent::RoomJoinRules(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomMember => {
-                let event = match from_value::<MemberEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(StateEvent::RoomMember(event))
+                match from_value::<MemberEvent>(value.clone()) {
+                    Ok(event) => Ok(StateEvent::RoomMember(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomName => {
-                let event = match from_value::<NameEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(StateEvent::RoomName(event))
+                match from_value::<NameEvent>(value.clone()) {
+                    Ok(event) => Ok(StateEvent::RoomName(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomPowerLevels => {
-                let event = match from_value::<PowerLevelsEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(StateEvent::RoomPowerLevels(event))
+                match from_value::<PowerLevelsEvent>(value.clone()) {
+                    Ok(event) => Ok(StateEvent::RoomPowerLevels(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomThirdPartyInvite => {
-                let event = match from_value::<ThirdPartyInviteEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(StateEvent::RoomThirdPartyInvite(event))
+                match from_value::<ThirdPartyInviteEvent>(value.clone()) {
+                    Ok(event) => Ok(StateEvent::RoomThirdPartyInvite(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::RoomTopic => {
-                let event = match from_value::<TopicEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(StateEvent::RoomTopic(event))
+                match from_value::<TopicEvent>(value.clone()) {
+                    Ok(event) => Ok(StateEvent::RoomTopic(event)),
+                    Err(error) => invalid_state_event(value, error.to_string()),
+                }
             }
             EventType::Custom(_) => {
-                let event = match from_value::<CustomStateEvent>(value) {
-                    Ok(event) => event,
-                    Err(error) => return Err(D::Error::custom(error.to_string())),
-                };
-
-                Ok(StateEvent::CustomState(event))
+                match from_value::<CustomStateEvent>(value) {
+                    Ok(event) => Ok(StateEvent::CustomState(event)),
+                    Err(error) => Err(D::Error::custom(error.to_string())),
+                }
             }
             EventType::CallAnswer | EventType::CallCandidates | EventType::CallHangup |
             EventType::CallInvite | EventType::Presence | EventType::Receipt |
             EventType::RoomMessage | EventType::RoomRedaction | EventType::Tag |
             EventType::Typing => {
-                return Err(D::Error::custom("not a state event".to_string()));
+                Err(D::Error::custom("not a state event".to_string()))
             }
         }
     }
